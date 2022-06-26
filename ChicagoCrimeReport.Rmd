@@ -1,0 +1,545 @@
+---
+title: "MATH 546 Project Report"
+subtitle: "Chicago Crime Analysis"
+author:
+  - "Karan Bhandari: A20469335"
+  - "Jasleen Bhatia: A20495939"
+date: "05/05/2022"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_notebook: default
+  html_document:
+    df_print: paged
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## 1. [ABSTRACT]{.smallcaps}
+
+Crime is an integral aspect of our society whether as a victim or an
+offender, everyone has been witnessing a crime. In our study, we analyze
+crime data, and we chose the "Chicago Criminal dataset," which contains
+crime episodes in Chicago from 2001 to 23rd March 2022. We looked at
+crime patterns over time.
+
+## 2. OBJECTIVE
+
+The main objective of this project is to analyze and compare the
+patterns of Chicago crime based on historical patterns by using
+statistical methods. Our focus is to build a model that allows a
+benchmarking comparison and serves as a reference for future research on
+this subject.
+
+## 3. RESEARCH SCOPE
+
+To analyze Chicago crime data and the effects of external factors , we
+want to answer the following questions at the end of this project:
+
+-   What is security status of the city?
+
+-   Which month has the highest crime rate on average?
+
+-   Is there any influence of the external factors on crime?
+
+-   Is a predictive model useful in anticipating crime?
+
+\newpage
+
+## 4. EXPLORATORY DATA ANALYSIS
+
+The initial step consists of reworking the data into a lot of
+comprehensible formats to feed it as an input to the model. Knowledge
+preparation may be a wrangle technique wherever knowledge transformation
+happens, i.e., inconsistent, incomplete knowledge with errors is
+converted to a clear format. In this pre-processing phase, we imported
+Chicago Crime data collected from
+([https://data.cityofchicago.org/Public-Safety/Crimes-2001-to-Present/ijzp-q8t2).](https://data.cityofchicago.org/Public-Safety/Crimes-2001-to-Present/ijzp-q8t2)
+The most crucial task in this stage is to identify the exact features
+necessary for model building During data preparation, we discovered that
+just the date feature is necessary for model building. Because the
+dataset is large, we are utilizing the fread function for quicker
+readings rather than the read.csv method. The original dataset contains
+information on each reported event, such as the case number, the date
+the incident happened, the kind of crime, if an arrest was made,
+geographic details, when the case was last updated, and so on. The
+monthly number of criminal occurrences will be the primary subject of
+this report. As a result, we chose one feature from the list of 22 for
+data modeling. Because the data contains a record for each crime
+recorded, we must first aggregate the data across monthly incidences
+reported. We just used the Date column from the data to aggregate the
+data on months. We next sort the data in ascending order once it has
+been collected.\
+
+```{r libraries, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+library(data.table)
+library(tidyr)
+library(TSA)
+library(ggplot2)
+library(knitr)
+library(xts)
+library(dplyr)
+library(tseries)
+library(forecast)
+library(seastests)
+library(LSTS)
+library(aTSA)
+```
+
+```{r LoadData, echo=FALSE, results='hide'}
+raw_data = fread("data/Crimes_-_2001_to_Present.csv")
+```
+
+```{r Head, results='hide', echo=FALSE}
+head(raw_data)
+```
+
+```{r Summary, echo=FALSE, results='hide'}
+summary(raw_data)
+```
+
+```{r ExtractDates, echo=FALSE, results='hide'}
+# Extracting dates from the raw data
+# using substring to only get the date and not the time
+date_data <- substr(raw_data$Date, 1, 10)
+head(date_data)
+```
+
+```{r CheckingDates, echo=FALSE, results='hide'}
+Date <- as.Date(raw_data$Date, "%m/%d/%Y")
+date_data_2 <- data.frame(Date)
+head(date_data_2)
+```
+
+```{r SortingDates, echo=FALSE, results='hide'}
+# Sorting the date
+date_data_2 <- arrange(date_data_2, Date)
+head(date_data_2)
+```
+
+```{r MonthlyAggregate, echo=FALSE}
+# Do we need to show this code?
+setDT(date_data_2)
+monthly_crimes <- date_data_2[, .N, by=.(year(date_data_2$Date), month(date_data_2$Date))]
+colnames(monthly_crimes)[3] <- "Crimes"
+head(monthly_crimes)
+
+```
+
+```{r MonthlyHead, echo=FALSE, results='hide'}
+monthly_crimes$Date <- as.yearmon(paste(monthly_crimes$year, monthly_crimes$month), "%Y %m")
+head(monthly_crimes)
+```
+
+```{r DateRange, echo=FALSE}
+# Range of date
+cat(paste("\n", "Range of Time: ", min(monthly_crimes$Date), ",", max(monthly_crimes$Date)))
+```
+
+\newpage
+
+### 4.1. Visualization of Monthly Crime Trend through the period
+
+By examining the time series plot below, we can observe that the series
+has a declining trend and cycles that appear to represent season
+impacts. There is also heteroscedasticity and the variance seems to be
+decreasing with time.
+
+```{r MonthPlot, echo=FALSE}
+plot(monthly_crimes$Crimes, type="l", ylab = "Crimes", xlab = "Time", 
+     col="Blue",
+     main = "Monthly Crime Trend throughout the period")
+```
+
+```{r YearlyAggregate, echo=FALSE, results='hide'}
+yearly_crimes <- date_data_2[, .N, by=year(Date)]
+colnames(yearly_crimes)[2] <- "Crimes"
+head(yearly_crimes)
+```
+
+```{r YearPlot, echo=FALSE, results='hide'}
+# plot(yearly_crimes$N, type="l")
+```
+
+\newpage
+
+\
+The seasonal plots described below indicates the underlying seasonal
+pattern, which might be valuable in spotting years when the pattern
+changes. In this plot, we can observe that the crime rate has
+continuously declined over the years. It is also worth noting that
+volatility has decreased in recent years, and the months with low crime
+rates in recent years have been considerably lower than in prior years.
+Furthermore, we see an increase in crime in the fall and a decrease in
+crime throughout the winter, and peaks during the fall.
+
+The lockdowns enforced during the commencement of the COVID-19 pandemic
+can explain the substantial fall in crime in the first few months of
+2020. We can say that the security status of the city is improving
+comparing to prior year.\
+
+```{r MonthlyGGplot, echo=FALSE}
+title_theme = theme(plot.title = element_text(hjust = 0.5))
+ggplot(monthly_crimes, aes(factor(month(Date)), Crimes, group=factor(year(Date)))) +
+  geom_line(aes(color = factor(year))) +
+  geom_point(aes(color = factor(year))) +
+  labs(x="Month", colour="Year", y = "Crimes") +
+  ggtitle("Seasonal Plot") +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  theme_classic() + 
+  title_theme
+```
+
+\newpage
+
+## 5. SEASONALITY
+
+The autocorrelation plot below indicates that there is the presence of
+cycles. Since it does not decrease at a constant rate when the lag
+increases. This shows that there is a strong correlation between the
+values that are a specific period apart. Looking at the seasonal plot we
+think that this cycle in the autocorrelation plot has a period of 12 and
+that it is not just white noise.\
+
+```{r AcfPacf, echo=FALSE}
+# par(mfrow=c(1, 2))
+months <- nrow(monthly_crimes)
+acf(monthly_crimes$Crimes, lag.max = months, main = "ACF of monthly crimes")
+# pacf(monthly_crimes$N, lag.max = months, main = "PACF of monthly crimes")
+```
+
+To formally validate our claims that the ACF is not just white noise,
+and a series of correlated values, we perform the Ljung-Box test. The
+p-value at lag 12, is much lower than 0.001 so we can reject the null
+hypothesis of the absence of serial correlation.\
+
+```{r OgBoxTest, echo=FALSE}
+Box.test(monthly_crimes$Crimes, lag = 12, type = "Ljung")
+```
+
+\newpage
+
+### 5.1 Frequency Analysis
+
+We can see that the data has a length of 12 months by looking at the
+monthly plot.To confirm our hypothesis, we used findfrequency().
+
+```{r DataFrequency, echo=FALSE}
+cat(paste("Frequency of original data", findfrequency(monthly_crimes$Crimes)))
+```
+
+Calculating the frequency of the data using spectrum yields similar
+results.
+
+```{r Spectrum, echo=FALSE}
+spec <- spectrum(monthly_crimes$Crimes, spans = c(5, 5), main = "Smoothed Periodogram")
+cat(paste("Frequency of data using spectrum is", 1/spec$freq[which.max(spec$spec)]))
+```
+
+\newpage
+
+### 5.2 Summarizing the Seasonality
+
+We analyzed the crime rate from a frequency domain perspective to gain
+information from a different angle i.e. using decompose over a frequency
+of 12. We may look at the data plot and break down monthly crimes into a
+trend, noise, and cycle components.
+
+```{r DecomposePlot, echo=FALSE}
+plot(decompose(ts(monthly_crimes$Crimes, frequency = 12, start = c(2001, 1))))
+```
+
+```{r DiffPlot, echo=FALSE}
+# plot(diff(monthly_crimes$Crimes), type = "l", ylab="", main = "Differencing on original data")
+```
+
+\newpage
+
+## 6. DATA MODELLING
+
+### 6.1 Linear Model Fit
+
+We first tried to fit a linear model to see how well the linear model
+can perform and if it is able to explain the data. Since the data shows
+a cubic trend, we fit the data with a cubic polynomial.
+
+$$ \hat{Y} = \hat{\beta_1} \cdot month + \hat{\beta_2} \cdot month^2 + \hat{\beta_3} \cdot month^3 $$
+
+```{r CubicModel, echo=FALSE}
+# https://stackoverflow.com/questions/24192428/what-does-the-capital-letter-i-in-r-linear-regression-formula-mean
+month <- seq(1, nrow(monthly_crimes))
+cubic_fit <- lm(monthly_crimes$Crimes ~ month + I(month^2) + I(month^3))
+summary(cubic_fit)
+```
+
+```{r CubicFit, echo=FALSE}
+plot(monthly_crimes$Crimes, type = "l", xlab = "Time", ylab = "Crimes", main = "Linear model")
+lines(cubic_fit$fitted.values, col = "blue", lty = 1)
+```
+
+Plotting the fitted model on the original data reveals that the model
+can fit on the trend and that the residuals show no evidence of trend.
+We do a Cox-Stuart trend test to formally confirm this assertion. We do
+not reject the null hypothesis of there being no trend in the residuals
+since the p-value is substantially more than 0.05.
+
+```{r trendTestCubic, echo=FALSE}
+trend.test(cubic_fit$residuals)
+```
+
+```{r CubicResiduals, echo=FALSE}
+plot(cubic_fit$residuals, type = 'l', main = "Residuals of the linear model", 
+     xlab = "Time", ylab = "Residuals")
+```
+
+Looking at the residuals, we can say that they are not random and the
+model cannot explain the seasonality in the data. Examining the
+residuals ACF and PACF reveals that there is still some unexplained
+association.
+
+```{r CubicACF, echo=FALSE}
+par(mfrow=c(1,2))
+acf(cubic_fit$residuals, main = "ACF of residuals")
+pacf(cubic_fit$residuals, main = "PACF of residuals")
+```
+
+Using the findfrequency function, we determine the frequency period of
+the residuals.
+
+```{r CubicResidualFrequency, echo=FALSE}
+cat(paste("Frequency of the residuals using findfrequency() is : ", 
+          findfrequency(cubic_fit$residuals)))
+```
+
+```{r CubicSpectrum, echo=FALSE}
+Cubic_spec <- spectrum(cubic_fit$residuals, spans = c(5, 5), main = "Smoothed Periodogram")
+cat(paste("Frequency of data using spectrum is", 1/Cubic_spec$freq[which.max(Cubic_spec$spec)]))
+```
+
+### 6.2 Fitting an SARMA Model
+
+Fitting a SARIMA model with P = 2 and Q = 0, keeping the period 12, we
+try out different values of p and q to get the best fitting model for
+the data.
+
+```{r SarimaAIC, warning=FALSE, echo=FALSE, results='hide'}
+aic_table <- function(data,P,Q){
+  table <- matrix(NA,(P+1),(Q+1))
+  for(p in 0:P) {
+    for(q in 0:Q) {
+      cat("p: ", p)
+      cat(" q: ", q)
+      table[p+1,q+1] <- arima(data,order=c(p,0,q),
+                              seasonal = list(order = c(2, 0, 0), 
+                                              period = 12), method = "ML")$aic
+      print(table[p+1, q+1])
+    }
+    }
+  dimnames(table) <- list(paste("AR",0:P, sep=""),
+                          paste("MA",0:Q,sep=""))
+  table
+}
+
+sarma_model <- aic_table(monthly_crimes$Crimes, 2, 4)
+```
+
+```{r SarimaTable, echo=FALSE, warning=FALSE}
+kable(sarma_model, align = "c", caption = "AIC scores of diffenrent SARIMA models")
+```
+
+Looking at the AIC values, we can say that the best model is ARMA(2, 0,
+1) as it gives the lowest AIC values.
+
+\newpage
+
+### 6.3 Final Model
+
+```{r FinalModel, echo=FALSE}
+final_model <- forecast::Arima(monthly_crimes$Crimes, order = c(2, 0, 1), seasonal = list(order = c(2, 0, 0), period = 12))
+summary(final_model)
+```
+
+$$ (1 + 1.2846B - 0.2964B^2)(1 + 0.4852B^{12} + 0.438B^{24})(\hat{Y_n} - 22783.00) = (1 + 0.7465B)\hat{\epsilon_n} $$
+
+Plotting the model's residuals, we don't observe any kind of trend or
+pattern. To ensure that our model is not missing anything important, we
+examine the ACF and PACF of the model residuals.
+
+```{r SarimaResiduals, echo=FALSE}
+plot(final_model$residuals, 
+     xlab = "Time", ylab = "Residuals", 
+     main = "Residuals of the fitted model")
+```
+
+```{r SarimaACF, echo=FALSE}
+par(mfrow=c(1,2))
+acf(final_model$residuals, main = "ACF of residuals", lag = nrow(monthly_crimes))
+pacf(final_model$residuals, main = "PACF of residuals", lag = nrow(monthly_crimes))
+```
+
+Looking at the residuals and their ACF and PACF, we can see that the
+model can explain seasonality, with the exception of occasional spikes
+in them that may be attributed to random noise. To confirm that the
+residuals do not include anything meaningful, we are using qqplot.
+
+```{r QQPlot, echo=FALSE}
+par(mfrow=c(1,2))
+qqnorm(final_model$residuals)
+qqline(final_model$residuals)
+plot(density(final_model$residuals), main = "Desinty Plot of Residuals")
+```
+
+We may deduce from the Q-Q plot and the density map of the residuals
+that the model is not missing anything substantial and that the
+residuals are near to normal.
+
+```{r FittedPlotOld, echo=FALSE}
+# plot(monthly_crimes$Crimes, col = "red", type = "l", 
+#      ylab = "Crimes",xlab = "Month Index", 
+#      main = "Fitted model result")
+# 
+# lines(fitted(final_model), col = "blue", lty = 2)
+# 
+# legend("topright", inset = 0.02, 
+#        legend = c("Original", "Fitted"), 
+#        col = c("red", "blue"), lty = 1:2)
+```
+
+### 6.4 Forecasting
+
+Before we began forecasting, we separated our data into test and train
+sets. We can evaluate the performance of the out-of-sample data set by
+scoring it with the forecast() function and comparing the results to the
+actual values.
+
+We fit our ARIMA(2,0,1)(2,0,0)(12) model to training data and predicted
+the numbers for the following 12 months, which is our test data.
+
+We concluded that the actual and predicted values are quite close, and
+the model predicts the values as expected with a minimal error rate.
+
+```{r DataSplit, echo=FALSE}
+train_data <- head(monthly_crimes, n = -12)
+test_data <- tail(monthly_crimes, n = 12)
+
+# Fitting the model again on the test_data
+forecast_model <- forecast::Arima(train_data$Crimes, order = c(2, 0, 1), seasonal = list(order = c(2, 0, 0), period = 12))
+summary(forecast_model)
+```
+
+```{r FittedPlot, echo=FALSE}
+plot(train_data$Crimes, col = "red", type = "l", 
+     ylab = "Crimes",xlab = "Month Index", 
+     main = "Fitted model result")
+
+lines(fitted(forecast_model), col = "blue", lty = 2)
+
+legend("topright", inset = 0.02, 
+       legend = c("Original", "Fitted"), 
+       col = c("red", "blue"), lty = 1:2)
+```
+
+```{r Forecast, echo=FALSE}
+# Forecasting
+predictions <- forecast::forecast(forecast_model, h = 12)
+kable(predictions, align = "c", caption = "Forecast for the next 12 months")
+```
+
+```{r ForecastPlot, echo=FALSE}
+# Plotting the forecasted and the original data
+plot(predictions, main = "Forecast and Actual Data", xlab = "Month Index", ylab = "Crimes")
+lines(y = test_data$Crimes, x = tail(month, n = 12), col = "red")
+```
+
+\newpage
+
+Taking a closer look at the predictions and test data. We can conclude
+that the model is quite significant and capable of predicting drops and
+peaks in crime rates accurately.
+
+```{r ForecastOgPlot, echo=FALSE}
+plot(y = test_data$Crimes, x = tail(month, n = 12), ylim = c(12000, 20000), yaxs = "i",
+     col = "red", type = "l", 
+     main = "Test and Predicted Data", xlab = "Time", ylab = "Crimes")
+
+lines(predict(forecast_model, n.ahead = 12)$pred)
+
+legend("topright", inset = 0.02, 
+       legend = c("Test Data", "Predicted Data"), 
+       col = c("red", "Black"), lty = 1:1)
+```
+
+```{r accuracy, echo=FALSE}
+accuracy(predictions$mean, test_data$Crimes)
+```
+
+\newpage
+
+## 7. OTHER INFLUENCING FACTORS
+
+The external factors plays important role in crime statistics. Here, we
+are taking the weather data and analyzed the patterns in Chicago. By
+examining, we can see the strong correlation between weather and crime
+over annual time periods, which in turn allows for more insight into the
+decision-making process behind the crime.
+
+The below mentioned graph signifies the direct relationship with the
+crimes communed. We can deduce that when the heat index was higher
+especially in the month of June, July and August, rate of crime were
+higher compared to other months. Overall, crime rates were highest in
+the warmest months of the year.During the year's colder months, the
+contrast of high versus low rates of crime on more comfortable versus
+cooler temperature days was more striking.
+
+![Chicago weather in
+2004](weather/Temperature%20history%20in%202004%20in%20Chicago.png){style="display: block; margin: 1em auto; text-align: center;"
+width="400"}
+
+![Chicago weather in
+2011](weather/Temperature%20history%20in%202011%20in%20Chicago.png){style="display: block; margin: 1em auto; text-align: center;"
+width="400"}
+
+\newpage
+
+## 8. CONCLUSION
+
+This data analytic research provided us a scientific perspective on the
+city of Chicago's security and crime rate. According to the analytically
+results and visualization, the frequency of occurrence of the crime
+trend repeats every 12 months. It is also worth mentioning that
+volatility has lessened in recent years, and months with low crime rates
+have been significantly lower in recent years than in previous years.
+Furthermore, we examined the pattern of high peaks in criminal activity
+in Chicago throughout the months of June, July, and August. The
+lockdowns imposed during the start of the COVID-19 pandemic can explain
+the significant drop in crime in the first few months of 2020. While
+ARIMA models forecast using the whole time series, exponential smoothing
+approaches give more weight to the most recent observations. However, in
+this dataset, a SARIMA model produced the best results. The SARIMA model
+with ARIMA(2,0,1)(2,0,0)(12) well explains the 12-month crime rate
+predictions , which exhibits a trend.
+
+## 9. FUTURE WORK
+
+1.  Investigate data with other external factors such as unemployment,
+    and holidays, as well as the impact of these factors on crime rates
+    as the weather obviously has an impact on the quantity of crimes, we
+    do not believe it is the sole significant element impacting the
+    outcomes.
+
+2.  Create a better model with more helpful features like crime type,
+    location, and arrest rate.
+
+3.  To experiment with different data formats like AVRO or Parquet to
+    make row/column operations more efficient.
+
+## 10. REFERENCES
+
+1.  <https://data.cityofchicago.org/Public-Safety/Crimes-2001-to-Present/ijzp-q8t2>
+2.  <https://support.minitab.com/en-us/minitab/18/help-and-how-to/modeling-statistics/time-series/how-to/partial-autocorrelation/interpret-the-results/partial-autocorrelation-function-pacf/>
+3.  <https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/decompose>
+4.  <https://rdrr.io/cran/forecast/man/findfrequency.html>
+5.  <https://www.rdocumentation.org/packages/aTSA/versions/3.1.2/topics/trend.test>
+6.  <https://weatherspark.com/y/14091/Average-Weather-in-Chicago-Illinois-United-States-Year-Round>
+7.  <https://bookdown.org/yihui/rmarkdown/>
